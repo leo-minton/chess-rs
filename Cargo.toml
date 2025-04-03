@@ -1,0 +1,12 @@
+[package]
+name = "chess"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eframe = "0.31.1"
+egui_extras = { version = "0.31.1", features = ["image"] }
+image = "0.25"
+include_dir = "0.7.4"
+strum = "0.27.1"
+strum_macros = "0.27.1"
