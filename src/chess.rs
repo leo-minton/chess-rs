@@ -1,4 +1,8 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{
+    collections::HashMap,
+    fmt::{Debug, Display},
+};
+use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, EnumIter)]
@@ -9,6 +13,16 @@ pub enum PieceType {
     Bishop,
     Knight,
     Pawn,
+}
+
+impl PieceType {
+    pub fn promotable_to(&self) -> bool {
+        match self {
+            PieceType::Pawn => false,
+            PieceType::King => false,
+            _ => true,
+        }
+    }
 }
 
 impl Display for PieceType {
@@ -85,21 +99,17 @@ impl ChessPiece {
     ) {
         let mut target = (pos.0 as isize + dir.0, pos.1 as isize + dir.1);
         while (0..8).contains(&(target.0 as usize)) && (0..8).contains(&(target.1 as usize)) {
-            if let Some(piece) = board.piece_at((target.0 as usize, target.1 as usize)) {
-                if piece.color != board.turn {
-                    moves.push(Move::new(
-                        pos,
-                        (target.0 as usize, target.1 as usize),
-                        MoveType::Normal,
-                    ));
-                }
-                break;
-            }
             moves.push(Move::new(
                 pos,
                 (target.0 as usize, target.1 as usize),
                 MoveType::Normal,
             ));
+            if board
+                .piece_at((target.0 as usize, target.1 as usize))
+                .is_some()
+            {
+                break;
+            }
             target = (target.0 + dir.0, target.1 + dir.1);
         }
     }
@@ -114,32 +124,46 @@ impl ChessPiece {
                     .filter(|p| p.piece_type == PieceType::Rook && p.color == self.color)
                     .collect::<Vec<_>>();
 
-                for rook in rooks {
-                    if !rook.has_moved {
-                        let direction = (rook.pos.0 as isize - self.pos.0 as isize).signum();
-                        let mut path_clear = true;
-                        for i in 1..(rook.pos.0 as isize - self.pos.0 as isize).abs() {
-                            let target = (self.pos.0 as isize + i * direction, self.pos.1 as isize);
-                            if board
-                                .piece_at((target.0 as usize, target.1 as usize))
-                                .is_some()
-                            {
-                                path_clear = false;
-                                break;
+                if !ignore_check && !board.is_in_check(self.color) {
+                    if !self.has_moved {
+                        for rook in rooks {
+                            if !rook.has_moved {
+                                let direction =
+                                    (rook.pos.0 as isize - self.pos.0 as isize).signum();
+                                let mut path_clear = true;
+                                for i in 1..(rook.pos.0 as isize - self.pos.0 as isize).abs() {
+                                    let target =
+                                        (self.pos.0 as isize + i * direction, self.pos.1 as isize);
+                                    if board
+                                        .piece_at((target.0 as usize, target.1 as usize))
+                                        .is_some()
+                                    {
+                                        path_clear = false;
+                                        break;
+                                    }
+                                }
+                                if !path_clear {
+                                    continue;
+                                }
+                                if board.is_pos_attacked(
+                                    ((self.pos.0 as isize + direction) as usize, self.pos.1),
+                                    self.color.opposite(),
+                                    true,
+                                ) {
+                                    continue;
+                                }
+                                let target =
+                                    (self.pos.0 as isize + 2 * direction, self.pos.1 as isize);
+                                moves.push(Move::new_with_isize(
+                                    self.pos,
+                                    target,
+                                    MoveType::Castling {
+                                        rook: rook.pos,
+                                        direction,
+                                    },
+                                ));
                             }
                         }
-                        if !path_clear {
-                            continue;
-                        }
-                        let target = (self.pos.0 as isize + 2 * direction, self.pos.1 as isize);
-                        moves.push(Move::new_with_isize(
-                            self.pos,
-                            target,
-                            MoveType::Castling {
-                                rook: rook.pos,
-                                direction,
-                            },
-                        ));
                     }
                 }
 
@@ -205,16 +229,16 @@ impl ChessPiece {
             PieceType::Pawn => {
                 let direction = if self.color == Color::White { -1 } else { 1 };
                 let target_row = (self.pos.1 as isize + direction) as usize;
-                if target_row < 8 {
-                    if let Some(target_piece) = board.piece_at((self.pos.0, target_row)) {
-                        if target_piece.color != self.color
-                            && board.piece_at((self.pos.0, target_row)).is_none()
-                        {
-                            moves.push(Move::new(
-                                self.pos,
-                                (self.pos.0, target_row),
-                                MoveType::Normal,
-                            ));
+                if board.piece_at((self.pos.0, target_row)).is_none() {
+                    if target_row == 0 || target_row == 7 {
+                        for piece in PieceType::iter() {
+                            if piece.promotable_to() {
+                                moves.push(Move::new(
+                                    self.pos,
+                                    (self.pos.0, target_row),
+                                    MoveType::Promotion(piece),
+                                ));
+                            }
                         }
                     } else {
                         moves.push(Move::new(
@@ -223,15 +247,15 @@ impl ChessPiece {
                             MoveType::Normal,
                         ));
                     }
-                    if !self.has_moved {
-                        let double_target_row = (self.pos.1 as isize + 2 * direction) as usize;
-                        if board.piece_at((self.pos.0, double_target_row)).is_none() {
-                            moves.push(Move::new(
-                                self.pos,
-                                (self.pos.0, double_target_row),
-                                MoveType::Normal,
-                            ));
-                        }
+                }
+                if !self.has_moved {
+                    let double_target_row = (self.pos.1 as isize + 2 * direction) as usize;
+                    if board.piece_at((self.pos.0, double_target_row)).is_none() {
+                        moves.push(Move::new(
+                            self.pos,
+                            (self.pos.0, double_target_row),
+                            MoveType::Normal,
+                        ));
                     }
                 }
 
@@ -279,13 +303,30 @@ pub enum MoveType {
         direction: isize,
     },
     EnPassant,
-    Promotion,
+    Promotion(PieceType),
 }
 
 pub struct Move {
     pub original: (usize, usize),
     pub target: (usize, usize),
     pub move_type: MoveType,
+}
+
+impl Display for Move {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} -> {}",
+            pos_to_notation(self.original),
+            pos_to_notation(self.target),
+        )
+    }
+}
+
+impl Debug for Move {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self)
+    }
 }
 
 impl Move {
@@ -333,7 +374,7 @@ impl Move {
             let mut temp_board = board.clone();
             if let Some(piece) = board.piece_at(self.original) {
                 self.perform(&mut temp_board);
-                if temp_board.is_in_check(Some(piece.color)) {
+                if temp_board.is_in_check(piece.color) {
                     return false;
                 }
             }
@@ -345,15 +386,22 @@ impl Move {
         board.pieces.retain(|p| p.pos != self.target);
         if let Some(piece) = board.piece_at_mut(self.original) {
             piece.move_to(self.target);
-        }
-        match self.move_type {
-            MoveType::Castling { rook, direction } => {
-                if let Some(rook_piece) = board.piece_at_mut(rook) {
-                    let target = ((self.target.0 as isize - direction) as usize, self.target.1);
-                    rook_piece.move_to(target);
+            match self.move_type {
+                MoveType::Castling { rook, direction } => {
+                    if let Some(rook_piece) = board.piece_at_mut(rook) {
+                        let target = ((self.target.0 as isize - direction) as usize, self.target.1);
+                        rook_piece.move_to(target);
+                    }
                 }
+                MoveType::Promotion(piece_type) => {
+                    piece.piece_type = piece_type;
+                }
+                MoveType::EnPassant => {
+                    let target = (self.target.0, self.original.1);
+                    board.pieces.retain(|p| p.pos != target);
+                }
+                MoveType::Normal => {}
             }
-            _ => {}
         }
         board.turn = board.turn.opposite();
     }
@@ -410,18 +458,16 @@ impl ChessBoard {
         self.pieces.iter_mut().find(|p| p.pos == pos)
     }
 
-    pub fn valid_moves(&self, ignore_check: bool) -> Vec<Move> {
+    pub fn valid_moves(&self, ignore_check: bool, color: Color) -> Vec<Move> {
         self.pieces
             .iter()
-            .filter(|piece| piece.color == self.turn)
+            .filter(|piece| piece.color == color)
             .flat_map(|piece| piece.valid_moves(self, ignore_check))
             .collect()
     }
 
-    pub fn is_in_check(&self, color: Option<Color>) -> bool {
-        let color = color.unwrap_or(self.turn);
-
-        let moves = self.valid_moves(true);
+    pub fn is_in_check(&self, color: Color) -> bool {
+        let moves = self.valid_moves(true, color.opposite());
         for valid_move in moves {
             let target_piece = self.piece_at(valid_move.target);
             if let Some(piece) = target_piece {
@@ -433,9 +479,24 @@ impl ChessBoard {
         false
     }
 
+    pub fn is_pos_attacked(
+        &self,
+        pos: (usize, usize),
+        attacking_color: Color,
+        ignore_check: bool,
+    ) -> bool {
+        let moves = self.valid_moves(ignore_check, attacking_color);
+        for valid_move in moves {
+            if valid_move.target == pos {
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn win_state(&self) -> Option<WinState> {
-        if self.valid_moves(false).is_empty() {
-            if self.is_in_check(Some(self.turn)) {
+        if self.valid_moves(false, self.turn).is_empty() {
+            if self.is_in_check(self.turn) {
                 return Some(WinState::Color(self.turn.opposite()));
             } else {
                 return Some(WinState::Draw);

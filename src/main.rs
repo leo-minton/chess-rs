@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use strum::IntoEnumIterator;
 
-use chess::{ChessBoard, Color, Move, PieceType, WinState};
+use chess::{ChessBoard, Color, Move, MoveType, PieceType, WinState};
 use eframe::{
     egui::{
-        self, Color32, ColorImage, Frame, PointerButton, Rect, Sense, TextureHandle,
-        TextureOptions, Ui, Vec2,
+        self, Align2, Area, Color32, ColorImage, Frame, Id, Modal, PointerButton, Pos2, Rect,
+        Sense, TextureHandle, TextureOptions, Ui, UiKind, Vec2,
     },
     CreationContext,
 };
@@ -36,6 +36,8 @@ struct ChessApp {
     selected_piece: Option<(usize, usize)>,
     valid_moves: Vec<Move>,
     win_state: Option<WinState>,
+    restart_modal_closed: bool,
+    promoting_piece: Option<(usize, usize)>,
 }
 
 impl ChessApp {
@@ -46,9 +48,18 @@ impl ChessApp {
             selected_piece: None,
             valid_moves: Vec::new(),
             win_state: None,
+            restart_modal_closed: false,
+            promoting_piece: None,
         };
         app.load_assets(cc);
         app
+    }
+
+    fn reset(&mut self) {
+        self.board = ChessBoard::new();
+        self.selected_piece = None;
+        self.valid_moves.clear();
+        self.win_state = None;
     }
 
     fn load_assets(&mut self, cc: &CreationContext) {
@@ -115,7 +126,83 @@ impl ChessApp {
             egui::Image::new(self.get_image(piece.piece_type, piece.color)).paint_at(ui, rect);
         }
 
-        if self.win_state.is_none() && response.clicked_by(PointerButton::Primary) {
+        if let Some(pos) = self.promoting_piece {
+            let options = self
+                .valid_moves
+                .iter()
+                .filter(|m| m.target == pos)
+                .filter_map(|m| {
+                    if let MoveType::Promotion(p) = m.move_type {
+                        Some((p, m))
+                    } else {
+                        None
+                    }
+                });
+
+            let target_square = Rect::from_min_size(
+                Pos2::new(
+                    pos.0 as f32 * square_size + response.rect.min.x,
+                    pos.1 as f32 * square_size + response.rect.min.y,
+                ),
+                Vec2::splat(square_size),
+            );
+
+            let mut selected_move = None;
+
+            Area::new(Id::new("Promotion popup"))
+                .order(egui::Order::Foreground)
+                .pivot(Align2::CENTER_TOP)
+                .kind(UiKind::Popup)
+                .fixed_pos(target_square.center_top())
+                .default_width(square_size)
+                .show(ui.ctx(), |ui| {
+                    let mut styles = ui.style_mut().clone();
+                    styles.spacing.item_spacing =
+                        Vec2::splat(styles.visuals.widgets.active.bg_stroke.width);
+
+                    Frame::popup(&styles).show(ui, |ui| {
+                        for (i, (piece, mv)) in options.enumerate() {
+                            let styles = ui.style_mut();
+
+                            styles.spacing.button_padding = Vec2::ZERO;
+                            let color = if i % 2 == 0 {
+                                DARK_SQUARE
+                            } else {
+                                LIGHT_SQUARE
+                            };
+                            styles.visuals.widgets.inactive.weak_bg_fill = color;
+                            styles.visuals.widgets.hovered.weak_bg_fill =
+                                color.lerp_to_gamma(Color32::LIGHT_GRAY, 0.25);
+                            styles.visuals.widgets.active.weak_bg_fill =
+                                color.lerp_to_gamma(Color32::DARK_GRAY, 0.25);
+                            let all_widget_stypes = [
+                                styles.visuals.widgets.inactive,
+                                styles.visuals.widgets.hovered,
+                                styles.visuals.widgets.active,
+                            ];
+                            for mut style in all_widget_stypes {
+                                style.expansion = 0.0;
+                            }
+
+                            let image = self.get_image(piece, self.board.turn);
+                            let button = ui.add(egui::ImageButton::new(
+                                egui::Image::new(image).fit_to_exact_size(Vec2::splat(square_size)),
+                            ));
+                            if button.clicked() {
+                                selected_move = Some(mv);
+                            }
+                        }
+                    })
+                });
+
+            if let Some(mv) = selected_move {
+                mv.perform(&mut self.board);
+                self.promoting_piece = None;
+                self.selected_piece = None;
+                self.valid_moves.clear();
+                self.win_state = self.board.win_state();
+            }
+        } else if self.win_state.is_none() && response.clicked_by(PointerButton::Primary) {
             let pos = response.interact_pointer_pos().unwrap();
             let col = ((pos.x - response.rect.min.x) / square_size).floor() as usize;
             let row = ((pos.y - response.rect.min.y) / square_size).floor() as usize;
@@ -133,10 +220,14 @@ impl ChessApp {
                     if let Some(valid_move) =
                         self.valid_moves.iter().find(|&m| m.target == target_pos)
                     {
-                        valid_move.perform(&mut self.board);
-                        self.selected_piece = None;
-                        self.valid_moves.clear();
-                        self.win_state = self.board.win_state();
+                        if let MoveType::Promotion(_) = valid_move.move_type {
+                            self.promoting_piece = Some(valid_move.target);
+                        } else {
+                            valid_move.perform(&mut self.board);
+                            self.selected_piece = None;
+                            self.valid_moves.clear();
+                            self.win_state = self.board.win_state();
+                        }
                     } else {
                         self.selected_piece = None;
                         self.valid_moves.clear();
@@ -153,23 +244,41 @@ impl eframe::App for ChessApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.vertical_centered(|ui| {
-                if let Some(win_state) = &self.win_state {
-                    match win_state {
-                        WinState::Color(color) => {
-                            ui.heading(format!("{} wins!", color.readable()));
-                        }
-                        WinState::Draw => {
-                            ui.heading("Draw!");
-                        }
-                    }
-                } else {
-                    ui.heading(format!("{}'s turn", self.board.turn.readable()));
-                }
+                ui.heading(format!("{}'s turn", self.board.turn.readable()));
 
                 Frame::canvas(ui.style())
                     .stroke((0_f32, Color32::TRANSPARENT))
                     .fill(Color32::TRANSPARENT)
                     .show(ui, |ui| self.chessboard(ui));
+
+                if !self.restart_modal_closed {
+                    if self.win_state.is_some() {
+                        Modal::new(Id::new("Winner modal")).show(ui.ctx(), |ui| {
+                            ui.set_min_width(200.0);
+                            match self.win_state.as_ref().unwrap() {
+                                WinState::Color(color) => {
+                                    ui.heading(format!("{} wins!", color.readable()));
+                                }
+                                WinState::Draw => {
+                                    ui.heading("Draw!");
+                                }
+                            }
+                            let play_again_clicked = egui::Sides::new().show(
+                                ui,
+                                |ui| ui.button("Play again").clicked(),
+                                |ui| ui.button("Close").clicked(),
+                            );
+
+                            if play_again_clicked.0 {
+                                self.reset();
+                                self.restart_modal_closed = true;
+                            }
+                            if play_again_clicked.1 {
+                                self.restart_modal_closed = true;
+                            }
+                        });
+                    }
+                }
             });
         });
     }
