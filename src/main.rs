@@ -1,4 +1,8 @@
-use std::collections::HashMap;
+use game::{ChessGame, HumanPlayer};
+use std::{
+    collections::HashMap,
+    sync::{mpsc::Sender, Arc, RwLock},
+};
 use strum::IntoEnumIterator;
 
 use chess::{ChessBoard, Color, Move, MoveType, PieceType, WinState};
@@ -11,7 +15,9 @@ use eframe::{
 };
 use include_dir::{include_dir, Dir};
 
+pub mod ai;
 pub mod chess;
+pub mod game;
 
 const BOARD_SIZE: usize = 8;
 const DEFAULT_ASSETS: &str = "default";
@@ -32,34 +38,53 @@ fn load_image_from_memory(image_data: &[u8]) -> ColorImage {
 
 struct ChessApp {
     images: HashMap<(PieceType, Color), TextureHandle>,
-    board: ChessBoard,
+    board: Arc<RwLock<ChessBoard>>,
     selected_piece: Option<(usize, usize)>,
     valid_moves: Vec<Move>,
     win_state: Option<WinState>,
     restart_modal_closed: bool,
     promoting_piece: Option<(usize, usize)>,
+    white_channel: Option<Sender<Move>>,
+    black_channel: Option<Sender<Move>>,
+    game_thread: Option<std::thread::JoinHandle<WinState>>,
 }
 
 impl ChessApp {
     fn new(cc: &CreationContext) -> Self {
         let mut app = Self {
             images: HashMap::new(),
-            board: ChessBoard::new(),
+            board: Arc::new(RwLock::new(ChessBoard::new())),
             selected_piece: None,
             valid_moves: Vec::new(),
             win_state: None,
             restart_modal_closed: false,
             promoting_piece: None,
+            white_channel: None,
+            black_channel: None,
+            game_thread: None,
         };
         app.load_assets(cc);
+        app.reset();
         app
     }
 
     fn reset(&mut self) {
-        self.board = ChessBoard::new();
         self.selected_piece = None;
         self.valid_moves.clear();
         self.win_state = None;
+
+        let (white_channel, player) = HumanPlayer::new();
+        self.white_channel = Some(white_channel);
+        let game = ChessGame::new(Box::new(player), Box::new(ai::AI));
+        self.board = game.board.clone();
+        self.game_thread = Some(game.create_game_thread());
+    }
+
+    fn channel(&self, color: Color) -> Option<Sender<Move>> {
+        match color {
+            Color::White => self.white_channel.clone(),
+            Color::Black => self.black_channel.clone(),
+        }
     }
 
     fn load_assets(&mut self, cc: &CreationContext) {
@@ -87,7 +112,6 @@ impl ChessApp {
     fn chessboard(&mut self, ui: &mut Ui) -> egui::Response {
         let mut size = ui.available_size_before_wrap();
         size = Vec2::splat(size.x.min(size.y));
-        // Placeholder for chessboard drawing logic
         let (response, painter) = ui.allocate_painter(size, Sense::click());
 
         let square_size = size.x / BOARD_SIZE as f32;
@@ -119,7 +143,8 @@ impl ChessApp {
             painter.rect_filled(rect, 0.0, VALID_MOVE);
         }
 
-        for piece in &self.board.pieces {
+        let board = self.board.read().unwrap();
+        for piece in &board.pieces {
             let pos = Vec2::new(piece.pos.0 as f32, piece.pos.1 as f32) * square_size;
             let rect = Rect::from_min_size(response.rect.min + pos, Vec2::splat(square_size));
 
@@ -184,7 +209,7 @@ impl ChessApp {
                                 style.expansion = 0.0;
                             }
 
-                            let image = self.get_image(piece, self.board.turn);
+                            let image = self.get_image(piece, board.turn);
                             let button = ui.add(egui::ImageButton::new(
                                 egui::Image::new(image).fit_to_exact_size(Vec2::splat(square_size)),
                             ));
@@ -196,41 +221,45 @@ impl ChessApp {
                 });
 
             if let Some(mv) = selected_move {
-                mv.perform(&mut self.board);
-                self.promoting_piece = None;
-                self.selected_piece = None;
-                self.valid_moves.clear();
-                self.win_state = self.board.win_state();
+                if let Some(channel) = self.channel(board.turn) {
+                    channel.send(*mv).unwrap();
+                    self.promoting_piece = None;
+                    self.selected_piece = None;
+                    self.valid_moves.clear();
+                    self.win_state = board.win_state();
+                }
             }
         } else if self.win_state.is_none() && response.clicked_by(PointerButton::Primary) {
-            let pos = response.interact_pointer_pos().unwrap();
-            let col = ((pos.x - response.rect.min.x) / square_size).floor() as usize;
-            let row = ((pos.y - response.rect.min.y) / square_size).floor() as usize;
+            if let Some(channel) = self.channel(board.turn) {
+                let pos = response.interact_pointer_pos().unwrap();
+                let col = ((pos.x - response.rect.min.x) / square_size).floor() as usize;
+                let row = ((pos.y - response.rect.min.y) / square_size).floor() as usize;
 
-            if col < BOARD_SIZE && row < BOARD_SIZE {
-                let target_pos = (col, row);
-                if self.selected_piece.is_none() {
-                    if let Some(piece) = self.board.piece_at(target_pos) {
-                        if piece.color == self.board.turn {
-                            self.selected_piece = Some((col, row));
-                            self.valid_moves = piece.valid_moves(&self.board, false);
-                        }
-                    }
-                } else {
-                    if let Some(valid_move) =
-                        self.valid_moves.iter().find(|&m| m.target == target_pos)
-                    {
-                        if let MoveType::Promotion(_) = valid_move.move_type {
-                            self.promoting_piece = Some(valid_move.target);
-                        } else {
-                            valid_move.perform(&mut self.board);
-                            self.selected_piece = None;
-                            self.valid_moves.clear();
-                            self.win_state = self.board.win_state();
+                if col < BOARD_SIZE && row < BOARD_SIZE {
+                    let target_pos = (col, row);
+                    if self.selected_piece.is_none() {
+                        if let Some(piece) = board.piece_at(target_pos) {
+                            if piece.color == board.turn {
+                                self.selected_piece = Some((col, row));
+                                self.valid_moves = piece.valid_moves(&board, false);
+                            }
                         }
                     } else {
-                        self.selected_piece = None;
-                        self.valid_moves.clear();
+                        if let Some(valid_move) =
+                            self.valid_moves.iter().find(|&m| m.target == target_pos)
+                        {
+                            if let MoveType::Promotion(_) = valid_move.move_type {
+                                self.promoting_piece = Some(valid_move.target);
+                            } else {
+                                channel.send(*valid_move).unwrap();
+                                self.selected_piece = None;
+                                self.valid_moves.clear();
+                                self.win_state = board.win_state();
+                            }
+                        } else {
+                            self.selected_piece = None;
+                            self.valid_moves.clear();
+                        }
                     }
                 }
             }
@@ -244,7 +273,12 @@ impl eframe::App for ChessApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.vertical_centered(|ui| {
-                ui.heading(format!("{}'s turn", self.board.turn.readable()));
+                {
+                    ui.heading(format!(
+                        "{}'s turn",
+                        self.board.read().unwrap().turn.readable()
+                    ));
+                }
 
                 Frame::canvas(ui.style())
                     .stroke((0_f32, Color32::TRANSPARENT))
@@ -256,10 +290,10 @@ impl eframe::App for ChessApp {
                         Modal::new(Id::new("Winner modal")).show(ui.ctx(), |ui| {
                             ui.set_min_width(200.0);
                             match self.win_state.as_ref().unwrap() {
-                                WinState::Color(color) => {
+                                WinState::Checkmate(color) => {
                                     ui.heading(format!("{} wins!", color.readable()));
                                 }
-                                WinState::Draw => {
+                                WinState::Stalemate => {
                                     ui.heading("Draw!");
                                 }
                             }

@@ -247,15 +247,15 @@ impl ChessPiece {
                             MoveType::Normal,
                         ));
                     }
-                }
-                if !self.has_moved {
-                    let double_target_row = (self.pos.1 as isize + 2 * direction) as usize;
-                    if board.piece_at((self.pos.0, double_target_row)).is_none() {
-                        moves.push(Move::new(
-                            self.pos,
-                            (self.pos.0, double_target_row),
-                            MoveType::Normal,
-                        ));
+                    if !self.has_moved {
+                        let double_target_row = (self.pos.1 as isize + 2 * direction) as usize;
+                        if board.piece_at((self.pos.0, double_target_row)).is_none() {
+                            moves.push(Move::new(
+                                self.pos,
+                                (self.pos.0, double_target_row),
+                                MoveType::Normal,
+                            ));
+                        }
                     }
                 }
 
@@ -290,11 +290,11 @@ impl ChessPiece {
 }
 
 pub enum WinState {
-    Color(Color),
-    Draw,
+    Checkmate(Color),
+    Stalemate,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 
 pub enum MoveType {
     Normal,
@@ -306,6 +306,7 @@ pub enum MoveType {
     Promotion(PieceType),
 }
 
+#[derive(Copy, Clone)]
 pub struct Move {
     pub original: (usize, usize),
     pub target: (usize, usize),
@@ -497,9 +498,9 @@ impl ChessBoard {
     pub fn win_state(&self) -> Option<WinState> {
         if self.valid_moves(false, self.turn).is_empty() {
             if self.is_in_check(self.turn) {
-                return Some(WinState::Color(self.turn.opposite()));
+                return Some(WinState::Checkmate(self.turn.opposite()));
             } else {
-                return Some(WinState::Draw);
+                return Some(WinState::Stalemate);
             }
         }
         None
