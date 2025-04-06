@@ -68,7 +68,7 @@ impl Display for Color {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ChessPiece {
     pub piece_type: PieceType,
     pub pos: (usize, usize),
@@ -408,7 +408,7 @@ impl Move {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ChessBoard {
     pub pieces: Vec<ChessPiece>,
     pub turn: Color,
@@ -459,12 +459,15 @@ impl ChessBoard {
         self.pieces.iter_mut().find(|p| p.pos == pos)
     }
 
-    pub fn valid_moves(&self, ignore_check: bool, color: Color) -> Vec<Move> {
+    pub fn valid_moves<'a>(
+        &'a self,
+        ignore_check: bool,
+        color: Color,
+    ) -> impl Iterator<Item = Move> + 'a {
         self.pieces
             .iter()
-            .filter(|piece| piece.color == color)
-            .flat_map(|piece| piece.valid_moves(self, ignore_check))
-            .collect()
+            .filter(move |piece| piece.color == color)
+            .flat_map(move |piece| piece.valid_moves(self, ignore_check))
     }
 
     pub fn is_in_check(&self, color: Color) -> bool {
@@ -496,7 +499,7 @@ impl ChessBoard {
     }
 
     pub fn win_state(&self) -> Option<WinState> {
-        if self.valid_moves(false, self.turn).is_empty() {
+        if self.valid_moves(false, self.turn).next().is_none() {
             if self.is_in_check(self.turn) {
                 return Some(WinState::Checkmate(self.turn.opposite()));
             } else {

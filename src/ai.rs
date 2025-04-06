@@ -22,6 +22,15 @@ impl AI {
         }
     }
     pub fn evaluate_board(&self, board: &ChessBoard, color: Color, depth: usize) -> i32 {
+        if depth > 0 {
+            let mut board = board.clone();
+            let valid_moves = board.valid_moves(false, board.turn).collect_vec();
+            if !valid_moves.is_empty() {
+                self.best_move(&board, &valid_moves, depth)
+                    .perform(&mut board);
+                return self.evaluate_board(&board, color, depth - 1);
+            }
+        }
         if let Some(win_state) = board.win_state() {
             return match win_state {
                 WinState::Checkmate(winner) => {
@@ -33,13 +42,6 @@ impl AI {
                 }
                 WinState::Stalemate => 0,
             };
-        }
-        if depth > 0 {
-            let mut board = board.clone();
-            let valid_moves = board.valid_moves(false, board.turn);
-            self.best_move(&board, &valid_moves, depth)
-                .perform(&mut board);
-            return self.evaluate_board(&board, color, depth - 1);
         }
         let mut score = 0;
         for piece in board.pieces.iter() {
@@ -71,6 +73,6 @@ impl Player for AI {
     fn get_move(&self, board: Arc<RwLock<ChessBoard>>) -> Move {
         let board = board.read().unwrap();
         let valid_moves = board.valid_moves(false, board.turn);
-        return self.best_move(&board, &valid_moves, 3);
+        return self.best_move(&board, &valid_moves.collect_vec(), 3);
     }
 }
