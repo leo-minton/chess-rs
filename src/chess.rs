@@ -115,7 +115,7 @@ impl ChessPiece {
     }
 
     pub fn valid_moves(&self, board: &ChessBoard, ignore_check: bool) -> Vec<Move> {
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(32);
         match self.piece_type {
             PieceType::King => {
                 let rooks = board

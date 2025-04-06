@@ -51,12 +51,12 @@ impl AI {
                     tree.children.insert(m, child_node);
                 }
             } else {
-                tree.depth = depth;
                 for (_, child) in tree.children.iter_mut() {
                     Self::fill_tree(child, depth - 1);
                 }
             }
         }
+        tree.depth = depth;
     }
     pub fn evaluate_tree(tree: &mut BoardNode) {
         if tree.depth == 0 {
@@ -74,33 +74,24 @@ impl AI {
             } else {
                 let mut score = 0;
                 for piece in &tree.board.pieces {
+                    let piece_score = match piece.piece_type {
+                        PieceType::Pawn => 1,
+                        PieceType::Knight => 3,
+                        PieceType::Bishop => 3,
+                        PieceType::Rook => 5,
+                        PieceType::Queen => 9,
+                        PieceType::King => {
+                            if piece.has_moved {
+                                0
+                            } else {
+                                2
+                            }
+                        }
+                    };
                     if piece.color == tree.board.turn {
-                        score += match piece.piece_type {
-                            PieceType::Pawn => 1,
-                            PieceType::Knight => 3,
-                            PieceType::Bishop => 3,
-                            PieceType::Rook => 5,
-                            PieceType::Queen => 9,
-                            PieceType::King => {
-                                if piece.has_moved {
-                                    0
-                                } else {
-                                    2
-                                }
-                            }
-                        };
+                        score += piece_score;
                     } else {
-                        score -= {
-                            let piece = piece.piece_type;
-                            match piece {
-                                PieceType::Pawn => 1,
-                                PieceType::Knight => 3,
-                                PieceType::Bishop => 3,
-                                PieceType::Rook => 5,
-                                PieceType::Queen => 9,
-                                PieceType::King => 0,
-                            }
-                        };
+                        score -= piece_score;
                     }
                 }
                 tree.score = score;
