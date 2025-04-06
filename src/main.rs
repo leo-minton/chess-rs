@@ -5,6 +5,7 @@ use std::{
 };
 use strum::IntoEnumIterator;
 
+use ai::AI;
 use chess::{ChessBoard, Color, Move, MoveType, PieceType, WinState};
 use eframe::{
     egui::{
@@ -75,7 +76,7 @@ impl ChessApp {
 
         let (white_channel, player) = HumanPlayer::new();
         self.white_channel = Some(white_channel);
-        let game = ChessGame::new(Box::new(player), Box::new(ai::AI));
+        let game = ChessGame::new(Box::new(player), Box::new(AI::new()));
         self.board = game.board.clone();
         self.game_thread = Some(game.create_game_thread());
     }

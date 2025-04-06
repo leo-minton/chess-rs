@@ -30,8 +30,9 @@ impl ChessGame {
                 let board = self.board.read().unwrap();
                 board.turn
             };
+            let new_ref = self.board.clone();
             let current_player = self.get_player(current_player);
-            let chess_move = current_player.get_move(self.board.clone());
+            let chess_move = current_player.get_move(new_ref);
 
             let mut board = self.board.write().unwrap();
 
@@ -43,16 +44,16 @@ impl ChessGame {
         }
     }
 
-    pub fn get_player(&self, color: Color) -> &dyn Player {
+    pub fn get_player(&mut self, color: Color) -> &mut dyn Player {
         match color {
-            Color::White => self.white_player.as_ref(),
-            Color::Black => self.black_player.as_ref(),
+            Color::White => self.white_player.as_mut(),
+            Color::Black => self.black_player.as_mut(),
         }
     }
 }
 
 pub trait Player: Send {
-    fn get_move(&self, board: Arc<RwLock<ChessBoard>>) -> crate::chess::Move;
+    fn get_move(&mut self, board: Arc<RwLock<ChessBoard>>) -> crate::chess::Move;
 }
 
 pub struct HumanPlayer {
@@ -67,7 +68,7 @@ impl HumanPlayer {
 }
 
 impl Player for HumanPlayer {
-    fn get_move(&self, _board: Arc<RwLock<ChessBoard>>) -> crate::chess::Move {
+    fn get_move(&mut self, _board: Arc<RwLock<ChessBoard>>) -> crate::chess::Move {
         self.move_channel.recv().unwrap()
     }
 }

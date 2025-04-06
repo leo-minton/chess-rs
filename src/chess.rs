@@ -294,7 +294,7 @@ pub enum WinState {
     Stalemate,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 
 pub enum MoveType {
     Normal,
@@ -306,7 +306,7 @@ pub enum MoveType {
     Promotion(PieceType),
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Move {
     pub original: (usize, usize),
     pub target: (usize, usize),
@@ -412,6 +412,12 @@ impl Move {
 pub struct ChessBoard {
     pub pieces: Vec<ChessPiece>,
     pub turn: Color,
+}
+
+impl Default for ChessBoard {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ChessBoard {

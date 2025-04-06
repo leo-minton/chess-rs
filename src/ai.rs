@@ -1,78 +1,160 @@
-use std::sync::{Arc, RwLock};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use itertools::Itertools;
-use rand::seq::IteratorRandom;
 
 use crate::{
-    chess::{ChessBoard, Color, Move, PieceType, WinState},
+    chess::{ChessBoard, Move, PieceType, WinState},
     game::Player,
 };
 
-pub struct AI;
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct BoardNode {
+    pub board: ChessBoard,
+    pub score: i32,
+    pub children: HashMap<Move, BoardNode>,
+    pub depth: usize,
+}
+
+pub struct AI {
+    pub tree: BoardNode,
+}
 
 impl AI {
-    pub fn piece_value(&self, piece: PieceType) -> i32 {
-        match piece {
-            PieceType::Pawn => 1,
-            PieceType::Knight => 3,
-            PieceType::Bishop => 3,
-            PieceType::Rook => 5,
-            PieceType::Queen => 9,
-            PieceType::King => 0,
+    pub fn new() -> Self {
+        Self {
+            tree: BoardNode {
+                board: ChessBoard::new(),
+                score: 0,
+                children: HashMap::new(),
+                depth: 0,
+            },
         }
-    }
-    pub fn evaluate_board(&self, board: &ChessBoard, color: Color, depth: usize) -> i32 {
-        if depth > 0 {
-            let mut board = board.clone();
-            let valid_moves = board.valid_moves(false, board.turn).collect_vec();
-            if !valid_moves.is_empty() {
-                self.best_move(&board, &valid_moves, depth)
-                    .perform(&mut board);
-                return self.evaluate_board(&board, color, depth - 1);
-            }
-        }
-        if let Some(win_state) = board.win_state() {
-            return match win_state {
-                WinState::Checkmate(winner) => {
-                    if winner == color {
-                        i32::MAX
-                    } else {
-                        i32::MIN
-                    }
-                }
-                WinState::Stalemate => 0,
-            };
-        }
-        let mut score = 0;
-        for piece in board.pieces.iter() {
-            if piece.color == color {
-                score += self.piece_value(piece.piece_type);
-            } else {
-                score -= self.piece_value(piece.piece_type);
-            }
-        }
-        score
     }
 
-    pub fn best_move(&self, board: &ChessBoard, valid_moves: &[Move], depth: usize) -> Move {
-        let options = valid_moves.into_iter().map(|&m| {
-            let mut new_board = board.clone();
-            m.perform(&mut new_board);
-            (m, self.evaluate_board(&new_board, board.turn, depth - 1))
-        });
-        options
-            .max_set_by_key(|&(_, score)| score)
-            .into_iter()
-            .choose(&mut rand::rng())
-            .unwrap()
-            .0
+    pub fn fill_tree(tree: &mut BoardNode, depth: usize) {
+        if depth > 0 {
+            if tree.children.is_empty() {
+                let valid_moves = tree.board.valid_moves(false, tree.board.turn).collect_vec();
+                for m in valid_moves {
+                    let mut new_board = tree.board.clone();
+                    m.perform(&mut new_board);
+                    let mut child_node = BoardNode {
+                        board: new_board,
+                        score: 0,
+                        children: HashMap::new(),
+                        depth: depth - 1,
+                    };
+                    Self::fill_tree(&mut child_node, depth - 1);
+                    tree.children.insert(m, child_node);
+                }
+            } else {
+                tree.depth = depth;
+                for (_, child) in tree.children.iter_mut() {
+                    Self::fill_tree(child, depth - 1);
+                }
+            }
+        }
+    }
+    pub fn evaluate_tree(tree: &mut BoardNode) {
+        if tree.depth == 0 {
+            if let Some(win_state) = tree.board.win_state() {
+                tree.score = match win_state {
+                    WinState::Checkmate(winner) => {
+                        if winner == tree.board.turn {
+                            i32::MAX
+                        } else {
+                            i32::MIN
+                        }
+                    }
+                    WinState::Stalemate => 0,
+                };
+            } else {
+                let mut score = 0;
+                for piece in &tree.board.pieces {
+                    if piece.color == tree.board.turn {
+                        score += match piece.piece_type {
+                            PieceType::Pawn => 1,
+                            PieceType::Knight => 3,
+                            PieceType::Bishop => 3,
+                            PieceType::Rook => 5,
+                            PieceType::Queen => 9,
+                            PieceType::King => {
+                                if piece.has_moved {
+                                    0
+                                } else {
+                                    2
+                                }
+                            }
+                        };
+                    } else {
+                        score -= {
+                            let piece = piece.piece_type;
+                            match piece {
+                                PieceType::Pawn => 1,
+                                PieceType::Knight => 3,
+                                PieceType::Bishop => 3,
+                                PieceType::Rook => 5,
+                                PieceType::Queen => 9,
+                                PieceType::King => 0,
+                            }
+                        };
+                    }
+                }
+                tree.score = score;
+            }
+        } else {
+            let mut score = i32::MIN;
+            for (_, child) in tree.children.iter_mut() {
+                Self::evaluate_tree(child);
+                score = score.max(child.score);
+            }
+            tree.score = -score;
+        }
+    }
+
+    pub fn best_move(&mut self, board: &ChessBoard, depth: usize) -> Move {
+        if &self.tree.board != board {
+            if self
+                .tree
+                .children
+                .iter()
+                .any(|(_, child)| &child.board == board)
+            {
+                self.tree = self
+                    .tree
+                    .clone()
+                    .children
+                    .into_iter()
+                    .find(|(_, child)| &child.board == board)
+                    .unwrap()
+                    .1;
+                self.tree.depth = depth;
+            } else {
+                self.tree = BoardNode {
+                    board: board.clone(),
+                    score: 0,
+                    children: HashMap::new(),
+                    depth,
+                };
+            }
+        }
+        Self::fill_tree(&mut self.tree, depth);
+        Self::evaluate_tree(&mut self.tree);
+        self.tree
+            .children
+            .iter()
+            .max_by_key(|(_, child)| child.score)
+            .map(|(m, _)| m.clone())
+            .expect("Board should always have valid moves")
     }
 }
 
 impl Player for AI {
-    fn get_move(&self, board: Arc<RwLock<ChessBoard>>) -> Move {
+    fn get_move(&mut self, board: Arc<RwLock<ChessBoard>>) -> Move {
         let board = board.read().unwrap();
-        let valid_moves = board.valid_moves(false, board.turn);
-        return self.best_move(&board, &valid_moves.collect_vec(), 3);
+        return self.best_move(&board, 3);
     }
 }
