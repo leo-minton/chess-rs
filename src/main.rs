@@ -111,6 +111,13 @@ impl ChessApp {
     }
 
     fn chessboard(&mut self, ui: &mut Ui) -> egui::Response {
+        if self.game_thread.as_ref().unwrap().is_finished() {
+            self.win_state = self
+                .win_state
+                .take()
+                .or(self.game_thread.take().unwrap().join().ok());
+            self.restart_modal_closed = false;
+        }
         let mut size = ui.available_size_before_wrap();
         size = Vec2::splat(size.x.min(size.y));
         let (response, painter) = ui.allocate_painter(size, Sense::click());
@@ -227,7 +234,6 @@ impl ChessApp {
                     self.promoting_piece = None;
                     self.selected_piece = None;
                     self.valid_moves.clear();
-                    self.win_state = board.win_state();
                 }
             }
         } else if self.win_state.is_none() && response.clicked_by(PointerButton::Primary) {
@@ -255,7 +261,6 @@ impl ChessApp {
                                 channel.send(*valid_move).unwrap();
                                 self.selected_piece = None;
                                 self.valid_moves.clear();
-                                self.win_state = board.win_state();
                             }
                         } else {
                             self.selected_piece = None;

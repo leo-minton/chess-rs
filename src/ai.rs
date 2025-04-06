@@ -89,9 +89,9 @@ impl AI {
                         }
                     };
                     if piece.color == tree.board.turn {
-                        score += piece_score;
-                    } else {
                         score -= piece_score;
+                    } else {
+                        score += piece_score;
                     }
                 }
                 tree.score = score;
