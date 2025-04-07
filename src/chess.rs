@@ -115,7 +115,7 @@ impl ChessPiece {
     }
 
     pub fn valid_moves(&self, board: &ChessBoard, ignore_check: bool) -> Vec<Move> {
-        let mut moves = Vec::with_capacity(32);
+        let mut moves = Vec::with_capacity(64);
         match self.piece_type {
             PieceType::King => {
                 if !ignore_check && !board.is_in_check(self.color) && !self.has_moved {

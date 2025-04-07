@@ -34,39 +34,31 @@ impl AI {
         }
     }
 
-    pub fn fill_tree(tree: &mut BoardNode, depth: usize) {
+    pub fn evaluate_tree(tree: &mut BoardNode, depth: usize) {
         if depth > 0 {
             if tree.children.is_empty() {
                 let valid_moves = tree.board.valid_moves(false, tree.board.turn).collect_vec();
                 for m in valid_moves {
                     let mut new_board = tree.board.clone();
                     m.perform(&mut new_board);
-                    let mut child_node = BoardNode {
+                    let child_node = BoardNode {
                         board: new_board,
                         score: 0,
                         children: HashMap::new(),
                         depth: depth - 1,
                     };
-                    Self::fill_tree(&mut child_node, depth - 1);
                     tree.children.insert(m, child_node);
-                }
-            } else {
-                for (_, child) in tree.children.iter_mut() {
-                    Self::fill_tree(child, depth - 1);
                 }
             }
         }
-        tree.depth = depth;
-    }
-    pub fn evaluate_tree(tree: &mut BoardNode) {
         if tree.depth == 0 {
             if let Some(win_state) = tree.board.win_state() {
                 tree.score = match win_state {
                     WinState::Checkmate(winner) => {
                         if winner == tree.board.turn {
-                            i32::MAX
-                        } else {
                             i32::MIN
+                        } else {
+                            i32::MAX
                         }
                     }
                     WinState::Stalemate => 0,
@@ -99,7 +91,7 @@ impl AI {
         } else {
             let mut score = i32::MIN;
             for (_, child) in tree.children.iter_mut() {
-                Self::evaluate_tree(child);
+                Self::evaluate_tree(child, depth - 1);
                 score = score.max(child.score);
             }
             tree.score = -score;
@@ -132,8 +124,7 @@ impl AI {
                 };
             }
         }
-        Self::fill_tree(&mut self.tree, depth);
-        Self::evaluate_tree(&mut self.tree);
+        Self::evaluate_tree(&mut self.tree, depth);
         self.tree
             .children
             .iter()

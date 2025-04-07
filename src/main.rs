@@ -111,7 +111,7 @@ impl ChessApp {
     }
 
     fn chessboard(&mut self, ui: &mut Ui) -> egui::Response {
-        if self.game_thread.as_ref().unwrap().is_finished() {
+        if self.game_thread.as_ref().is_some_and(|x| x.is_finished()) {
             self.win_state = self
                 .win_state
                 .take()
