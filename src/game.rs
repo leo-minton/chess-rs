@@ -69,6 +69,8 @@ impl HumanPlayer {
 
 impl Player for HumanPlayer {
     fn get_move(&mut self, _board: Arc<RwLock<ChessBoard>>) -> crate::chess::Move {
-        self.move_channel.recv().unwrap()
+        self.move_channel.recv().unwrap_or_else(|_| {
+            std::process::exit(0);
+        })
     }
 }

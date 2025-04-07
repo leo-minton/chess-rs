@@ -118,100 +118,72 @@ impl ChessPiece {
         let mut moves = Vec::with_capacity(32);
         match self.piece_type {
             PieceType::King => {
-                let rooks = board
-                    .pieces
+                if !ignore_check && !board.is_in_check(self.color) && !self.has_moved {
+                    for rook in board.pieces.iter().filter(|p| {
+                        p.piece_type == PieceType::Rook && p.color == self.color && !p.has_moved
+                    }) {
+                        let direction = (rook.pos.0 as isize - self.pos.0 as isize).signum();
+                        if (1..(rook.pos.0 as isize - self.pos.0 as isize).abs()).all(|i| {
+                            board
+                                .piece_at((
+                                    (self.pos.0 as isize + i * direction) as usize,
+                                    self.pos.1,
+                                ))
+                                .is_none()
+                        }) && !board.is_pos_attacked(
+                            ((self.pos.0 as isize + direction) as usize, self.pos.1),
+                            self.color.opposite(),
+                            true,
+                        ) {
+                            moves.push(Move::new_with_isize(
+                                self.pos,
+                                (self.pos.0 as isize + 2 * direction, self.pos.1 as isize),
+                                MoveType::Castling {
+                                    rook: rook.pos,
+                                    direction,
+                                },
+                            ));
+                        }
+                    }
+                }
+
+                for (dx, dy) in [-1, 0, 1]
                     .iter()
-                    .filter(|p| p.piece_type == PieceType::Rook && p.color == self.color)
-                    .collect::<Vec<_>>();
-
-                if !ignore_check && !board.is_in_check(self.color) {
-                    if !self.has_moved {
-                        for rook in rooks {
-                            if !rook.has_moved {
-                                let direction =
-                                    (rook.pos.0 as isize - self.pos.0 as isize).signum();
-                                let mut path_clear = true;
-                                for i in 1..(rook.pos.0 as isize - self.pos.0 as isize).abs() {
-                                    let target =
-                                        (self.pos.0 as isize + i * direction, self.pos.1 as isize);
-                                    if board
-                                        .piece_at((target.0 as usize, target.1 as usize))
-                                        .is_some()
-                                    {
-                                        path_clear = false;
-                                        break;
-                                    }
-                                }
-                                if !path_clear {
-                                    continue;
-                                }
-                                if board.is_pos_attacked(
-                                    ((self.pos.0 as isize + direction) as usize, self.pos.1),
-                                    self.color.opposite(),
-                                    true,
-                                ) {
-                                    continue;
-                                }
-                                let target =
-                                    (self.pos.0 as isize + 2 * direction, self.pos.1 as isize);
-                                moves.push(Move::new_with_isize(
-                                    self.pos,
-                                    target,
-                                    MoveType::Castling {
-                                        rook: rook.pos,
-                                        direction,
-                                    },
-                                ));
-                            }
-                        }
-                    }
-                }
-
-                for dx in -1..=1 {
-                    for dy in -1..=1 {
-                        if dx == 0 && dy == 0 {
-                            continue;
-                        }
-                        let target = (self.pos.0 as isize + dx, self.pos.1 as isize + dy);
-                        moves.push(Move::new_with_isize(self.pos, target, MoveType::Normal));
-                    }
+                    .flat_map(|&dx| [-1, 0, 1].iter().map(move |&dy| (dx, dy)))
+                    .filter(|&(dx, dy)| dx != 0 || dy != 0)
+                {
+                    moves.push(Move::new_with_isize(
+                        self.pos,
+                        (self.pos.0 as isize + dx, self.pos.1 as isize + dy),
+                        MoveType::Normal,
+                    ));
                 }
             }
-            PieceType::Queen => {
-                for dx in -1..=1 {
-                    for dy in -1..=1 {
-                        if dx == 0 && dy == 0 {
-                            continue;
-                        }
-                        Self::add_in_dir((dx, dy), self.pos, board, &mut moves);
-                    }
-                }
-            }
-            PieceType::Rook => {
-                for dx in -1..=1 {
-                    for dy in -1..=1 {
-                        if dx == 0 && dy == 0 {
-                            continue;
-                        }
-                        if dx != 0 && dy != 0 {
-                            continue;
-                        }
-                        Self::add_in_dir((dx, dy), self.pos, board, &mut moves);
-                    }
-                }
-            }
-            PieceType::Bishop => {
-                for dx in -1..=1 {
-                    for dy in -1..=1 {
-                        if dx == 0 || dy == 0 {
-                            continue;
-                        }
-                        Self::add_in_dir((dx, dy), self.pos, board, &mut moves);
-                    }
+            PieceType::Queen | PieceType::Rook | PieceType::Bishop => {
+                let directions = match self.piece_type {
+                    PieceType::Queen => [-1, 0, 1]
+                        .iter()
+                        .flat_map(|&dx| [-1, 0, 1].iter().map(move |&dy| (dx, dy)))
+                        .filter(|&(dx, dy)| dx != 0 || dy != 0)
+                        .collect::<Vec<_>>(),
+                    PieceType::Rook => [-1, 0, 1]
+                        .iter()
+                        .flat_map(|&dx| [-1, 0, 1].iter().map(move |&dy| (dx, dy)))
+                        .filter(|&(dx, dy)| dx == 0 || dy == 0)
+                        .collect::<Vec<_>>(),
+                    PieceType::Bishop => [-1, 0, 1]
+                        .iter()
+                        .flat_map(|&dx| [-1, 0, 1].iter().map(move |&dy| (dx, dy)))
+                        .filter(|&(dx, dy)| dx != 0 && dy != 0)
+                        .collect::<Vec<_>>(),
+                    _ => unreachable!(),
+                };
+                for &dir in &directions {
+                    Self::add_in_dir(dir, self.pos, board, &mut moves);
                 }
             }
             PieceType::Knight => {
-                let knight_moves = [
+                for &(dx, dy) in &[
                     (2, 1),
                     (2, -1),
                     (-2, 1),
@@ -220,26 +192,29 @@ impl ChessPiece {
                     (1, -2),
                     (-1, 2),
                     (-1, -2),
-                ];
-                for &(dx, dy) in &knight_moves {
-                    let target = (self.pos.0 as isize + dx, self.pos.1 as isize + dy);
-                    moves.push(Move::new_with_isize(self.pos, target, MoveType::Normal));
+                ] {
+                    moves.push(Move::new_with_isize(
+                        self.pos,
+                        (self.pos.0 as isize + dx, self.pos.1 as isize + dy),
+                        MoveType::Normal,
+                    ));
                 }
             }
             PieceType::Pawn => {
                 let direction = if self.color == Color::White { -1 } else { 1 };
                 let target_row = (self.pos.1 as isize + direction) as usize;
+
                 if board.piece_at((self.pos.0, target_row)).is_none() {
                     if target_row == 0 || target_row == 7 {
-                        for piece in PieceType::iter() {
-                            if piece.promotable_to() {
-                                moves.push(Move::new(
+                        moves.extend(PieceType::iter().filter(|p| p.promotable_to()).map(
+                            |piece| {
+                                Move::new(
                                     self.pos,
                                     (self.pos.0, target_row),
                                     MoveType::Promotion(piece),
-                                ));
-                            }
-                        }
+                                )
+                            },
+                        ));
                     } else {
                         moves.push(Move::new(
                             self.pos,
@@ -259,13 +234,8 @@ impl ChessPiece {
                     }
                 }
 
-                let attack_directions = [(-1, direction), (1, direction)];
-
-                for attack_dir in attack_directions.iter() {
-                    let target = (
-                        self.pos.0 as isize + attack_dir.0,
-                        self.pos.1 as isize + attack_dir.1,
-                    );
+                for &(dx, dy) in &[(-1, direction), (1, direction)] {
+                    let target = (self.pos.0 as isize + dx, self.pos.1 as isize + dy);
                     if (0..8).contains(&target.0) && (0..8).contains(&target.1) {
                         if let Some(target_piece) =
                             board.piece_at((target.0 as usize, target.1 as usize))
