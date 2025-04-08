@@ -3,7 +3,7 @@ use std::sync::{
     Arc, RwLock,
 };
 
-use crate::chess::{ChessBoard, Color, WinState};
+use crate::logic::{ChessBoard, Color, WinState};
 
 pub struct ChessGame {
     pub board: Arc<RwLock<ChessBoard>>,
@@ -61,22 +61,22 @@ impl ChessGame {
 }
 
 pub trait Player: Send {
-    fn get_move(&mut self, board: Arc<RwLock<ChessBoard>>) -> crate::chess::Move;
+    fn get_move(&mut self, board: Arc<RwLock<ChessBoard>>) -> crate::logic::Move;
 }
 
 pub struct HumanPlayer {
-    pub move_channel: Receiver<crate::chess::Move>,
+    pub move_channel: Receiver<crate::logic::Move>,
 }
 
 impl HumanPlayer {
-    pub fn new() -> (Sender<crate::chess::Move>, Self) {
+    pub fn new() -> (Sender<crate::logic::Move>, Self) {
         let (tx, rx) = mpsc::channel();
         (tx, Self { move_channel: rx })
     }
 }
 
 impl Player for HumanPlayer {
-    fn get_move(&mut self, _board: Arc<RwLock<ChessBoard>>) -> crate::chess::Move {
+    fn get_move(&mut self, _board: Arc<RwLock<ChessBoard>>) -> crate::logic::Move {
         self.move_channel.recv().unwrap_or_else(|_| {
             std::process::exit(0);
         })

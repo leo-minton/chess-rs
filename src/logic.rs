@@ -74,7 +74,7 @@ pub struct ChessPiece {
     pub piece_type: PieceType,
     pub pos: (usize, usize),
     pub color: Color,
-    pub has_moved: bool,
+    pub first_move_at: Option<usize>,
 }
 
 impl ChessPiece {
@@ -83,13 +83,13 @@ impl ChessPiece {
             piece_type,
             pos,
             color,
-            has_moved: false,
+            first_move_at: None,
         }
     }
 
-    pub fn move_to(&mut self, target: (usize, usize)) {
+    pub fn move_to(&mut self, target: (usize, usize), first_move_at: usize) {
         self.pos = target;
-        self.has_moved = true;
+        self.first_move_at = Some(first_move_at);
     }
 
     fn add_in_dir(
@@ -123,9 +123,11 @@ impl ChessPiece {
         let mut moves = Vec::with_capacity(64);
         match self.piece_type {
             PieceType::King => {
-                if !ignore_check && !board.is_in_check(self.color) && !self.has_moved {
+                if !ignore_check && !board.is_in_check(self.color) && self.first_move_at.is_none() {
                     for rook in board.pieces.iter().filter(|p| {
-                        p.piece_type == PieceType::Rook && p.color == self.color && !p.has_moved
+                        p.piece_type == PieceType::Rook
+                            && p.color == self.color
+                            && p.first_move_at.is_none()
                     }) {
                         let direction = (rook.pos.0 as isize - self.pos.0 as isize).signum();
                         if (1..(rook.pos.0 as isize - self.pos.0 as isize).abs()).all(|i| {
@@ -227,7 +229,7 @@ impl ChessPiece {
                             MoveType::Normal,
                         ));
                     }
-                    if !self.has_moved {
+                    if self.first_move_at.is_none() {
                         let double_target_row = (self.pos.1 as isize + 2 * direction) as usize;
                         if board.piece_at((self.pos.0, double_target_row)).is_none() {
                             moves.push(Move::new(
@@ -358,14 +360,15 @@ impl Move {
     }
 
     pub fn perform(&self, board: &mut ChessBoard) {
+        let moves_made = board.moves_made;
         board.pieces.retain(|p| p.pos != self.target);
         if let Some(piece) = board.piece_at_mut(self.original) {
-            piece.move_to(self.target);
+            piece.move_to(self.target, moves_made);
             match self.move_type {
                 MoveType::Castling { rook, direction } => {
                     if let Some(rook_piece) = board.piece_at_mut(rook) {
                         let target = ((self.target.0 as isize - direction) as usize, self.target.1);
-                        rook_piece.move_to(target);
+                        rook_piece.move_to(target, moves_made);
                     }
                 }
                 MoveType::Promotion(piece_type) => {
@@ -379,6 +382,7 @@ impl Move {
             }
         }
         board.turn = board.turn.opposite();
+        board.moves_made += 1;
     }
 }
 
@@ -386,6 +390,7 @@ impl Move {
 pub struct ChessBoard {
     pub pieces: Vec<ChessPiece>,
     pub turn: Color,
+    pub moves_made: usize,
 }
 
 impl Default for ChessBoard {
@@ -399,6 +404,7 @@ impl ChessBoard {
         let mut board = ChessBoard {
             pieces: Vec::new(),
             turn: Color::White,
+            moves_made: 0,
         };
         board.initialize_pieces();
         board

@@ -1,12 +1,12 @@
-use game::{ChessGame, HumanPlayer};
+use chess::game::{ChessGame, HumanPlayer};
 use std::{
     collections::HashMap,
     sync::{mpsc::Sender, Arc, RwLock},
 };
 use strum::IntoEnumIterator;
 
-use ai::AI;
-use chess::{ChessBoard, Color, Move, MoveType, PieceType, WinState};
+use chess::ai::AI;
+use chess::logic::{ChessBoard, Color, Move, MoveType, PieceType, WinState};
 use eframe::{
     egui::{
         self, Align2, Area, Color32, ColorImage, Context, Frame, Id, Modal, PointerButton, Pos2,
@@ -15,10 +15,6 @@ use eframe::{
     CreationContext,
 };
 use include_dir::{include_dir, Dir};
-
-pub mod ai;
-pub mod chess;
-pub mod game;
 
 const BOARD_SIZE: usize = 8;
 const DEFAULT_ASSETS: &str = "default";
