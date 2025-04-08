@@ -108,6 +108,7 @@ impl AI {
                 .tree
                 .children
                 .iter()
+                .flat_map(|(_, child)| child.children.iter())
                 .any(|(_, child)| &child.board == board)
             {
                 self.tree = self
@@ -115,6 +116,7 @@ impl AI {
                     .clone()
                     .children
                     .into_iter()
+                    .flat_map(|(_, child)| child.children.into_iter())
                     .find(|(_, child)| &child.board == board)
                     .unwrap()
                     .1;
