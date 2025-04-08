@@ -136,16 +136,6 @@ impl AI {
         }
         Self::evaluate_tree(&mut self.tree, depth);
 
-        println!("Tree score: {}", self.tree.score);
-        println!(
-            "Tree children scores: {:?}",
-            self.tree
-                .children
-                .iter()
-                .map(|(_, child)| child.score)
-                .collect::<Vec<_>>()
-        );
-
         let chosen_move = self
             .tree
             .children
@@ -153,12 +143,6 @@ impl AI {
             .max_by(|(_, a), (_, b)| a.score.partial_cmp(&b.score).unwrap_or(Ordering::Equal))
             .map(|(m, _)| m.clone())
             .expect("Board should always have valid moves");
-
-        println!("Chosen move: {:?}", chosen_move);
-        println!(
-            "Chosen move board score: {:?}",
-            self.tree.children.get(&chosen_move).unwrap().score
-        );
 
         chosen_move
     }

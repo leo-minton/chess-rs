@@ -6,8 +6,8 @@ edition = "2021"
 [[bin]]
 name = "ui"
 
-[profile.release]
-debug = true
+[[bin]]
+name = "uci"
 
 [dependencies]
 eframe = "0.31.1"
