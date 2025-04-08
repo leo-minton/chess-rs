@@ -1,3 +1,4 @@
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::{
     collections::HashMap,
     fmt::{Debug, Display},
@@ -114,7 +115,11 @@ impl ChessPiece {
         }
     }
 
-    pub fn valid_moves(&self, board: &ChessBoard, ignore_check: bool) -> Vec<Move> {
+    pub fn valid_moves<'a>(
+        &self,
+        board: &'a ChessBoard,
+        ignore_check: bool,
+    ) -> impl Iterator<Item = Move> + 'a {
         let mut moves = Vec::with_capacity(64);
         match self.piece_type {
             PieceType::King => {
@@ -254,8 +259,7 @@ impl ChessPiece {
         }
         moves
             .into_iter()
-            .filter(|m| m.is_valid(board, ignore_check))
-            .collect()
+            .filter(move |m| m.is_valid(board, ignore_check))
     }
 }
 
@@ -439,24 +443,18 @@ impl ChessBoard {
         &'a self,
         ignore_check: bool,
         color: Color,
-    ) -> impl Iterator<Item = Move> + 'a {
+    ) -> impl ParallelIterator<Item = Move> + 'a {
         self.pieces
-            .iter()
+            .par_iter()
             .filter(move |piece| piece.color == color)
-            .flat_map(move |piece| piece.valid_moves(self, ignore_check))
+            .flat_map_iter(move |piece| piece.valid_moves(self, ignore_check))
     }
 
     pub fn is_in_check(&self, color: Color) -> bool {
-        let moves = self.valid_moves(true, color.opposite());
-        for valid_move in moves {
-            let target_piece = self.piece_at(valid_move.target);
-            if let Some(piece) = target_piece {
-                if piece.piece_type == PieceType::King && piece.color == color {
-                    return true;
-                }
-            }
-        }
-        false
+        self.valid_moves(true, color.opposite()).any(|m| {
+            self.piece_at(m.target)
+                .map_or(false, |p| p.piece_type == PieceType::King)
+        })
     }
 
     pub fn is_pos_attacked(
@@ -466,16 +464,11 @@ impl ChessBoard {
         ignore_check: bool,
     ) -> bool {
         let moves = self.valid_moves(ignore_check, attacking_color);
-        for valid_move in moves {
-            if valid_move.target == pos {
-                return true;
-            }
-        }
-        false
+        return moves.any(|m| m.target == pos);
     }
 
     pub fn win_state(&self) -> Option<WinState> {
-        if self.valid_moves(false, self.turn).next().is_none() {
+        if self.valid_moves(false, self.turn).all(|_| false) {
             if self.is_in_check(self.turn) {
                 return Some(WinState::Checkmate(self.turn.opposite()));
             } else {

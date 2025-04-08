@@ -9,8 +9,8 @@ use ai::AI;
 use chess::{ChessBoard, Color, Move, MoveType, PieceType, WinState};
 use eframe::{
     egui::{
-        self, Align2, Area, Color32, ColorImage, Frame, Id, Modal, PointerButton, Pos2, Rect,
-        Sense, TextureHandle, TextureOptions, Ui, UiKind, Vec2,
+        self, Align2, Area, Color32, ColorImage, Context, Frame, Id, Modal, PointerButton, Pos2,
+        Rect, Sense, TextureHandle, TextureOptions, Ui, UiKind, Vec2,
     },
     CreationContext,
 };
@@ -65,18 +65,21 @@ impl ChessApp {
             game_thread: None,
         };
         app.load_assets(cc);
-        app.reset();
+        app.reset(&cc.egui_ctx);
         app
     }
 
-    fn reset(&mut self) {
+    fn reset(&mut self, context: &Context) {
+        let context = context.clone();
         self.selected_piece = None;
         self.valid_moves.clear();
         self.win_state = None;
 
         let (white_channel, player) = HumanPlayer::new();
         self.white_channel = Some(white_channel);
-        let game = ChessGame::new(Box::new(player), Box::new(AI::new()));
+        let game = ChessGame::new(Box::new(player), Box::new(AI::new()), move || {
+            context.request_repaint();
+        });
         self.board = game.board.clone();
         self.game_thread = Some(game.create_game_thread());
     }
@@ -248,7 +251,7 @@ impl ChessApp {
                         if let Some(piece) = board.piece_at(target_pos) {
                             if piece.color == board.turn {
                                 self.selected_piece = Some((col, row));
-                                self.valid_moves = piece.valid_moves(&board, false);
+                                self.valid_moves = piece.valid_moves(&board, false).collect();
                             }
                         }
                     } else {
@@ -310,7 +313,7 @@ impl eframe::App for ChessApp {
                             );
 
                             if play_again_clicked.0 {
-                                self.reset();
+                                self.reset(ui.ctx());
                                 self.restart_modal_closed = true;
                             }
                             if play_again_clicked.1 {

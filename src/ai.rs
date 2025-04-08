@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use itertools::Itertools;
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::{
     chess::{ChessBoard, Move, PieceType, WinState},
@@ -15,7 +15,6 @@ pub struct BoardNode {
     pub board: ChessBoard,
     pub score: i32,
     pub children: HashMap<Move, BoardNode>,
-    pub depth: usize,
 }
 
 pub struct AI {
@@ -29,29 +28,12 @@ impl AI {
                 board: ChessBoard::new(),
                 score: 0,
                 children: HashMap::new(),
-                depth: 0,
             },
         }
     }
 
     pub fn evaluate_tree(tree: &mut BoardNode, depth: usize) {
-        if depth > 0 {
-            if tree.children.is_empty() {
-                let valid_moves = tree.board.valid_moves(false, tree.board.turn).collect_vec();
-                for m in valid_moves {
-                    let mut new_board = tree.board.clone();
-                    m.perform(&mut new_board);
-                    let child_node = BoardNode {
-                        board: new_board,
-                        score: 0,
-                        children: HashMap::new(),
-                        depth: depth - 1,
-                    };
-                    tree.children.insert(m, child_node);
-                }
-            }
-        }
-        if tree.depth == 0 {
+        if tree.children.is_empty() {
             if let Some(win_state) = tree.board.win_state() {
                 tree.score = match win_state {
                     WinState::Checkmate(winner) => {
@@ -63,37 +45,59 @@ impl AI {
                     }
                     WinState::Stalemate => 0,
                 };
-            } else {
-                let mut score = 0;
-                for piece in &tree.board.pieces {
-                    let piece_score = match piece.piece_type {
-                        PieceType::Pawn => 1,
-                        PieceType::Knight => 3,
-                        PieceType::Bishop => 3,
-                        PieceType::Rook => 5,
-                        PieceType::Queen => 9,
-                        PieceType::King => {
-                            if piece.has_moved {
-                                0
-                            } else {
-                                2
-                            }
-                        }
+                return;
+            }
+            if depth > 0 {
+                let valid_moves = tree
+                    .board
+                    .valid_moves(false, tree.board.turn)
+                    .collect::<Vec<_>>();
+                for m in valid_moves {
+                    let mut new_board = tree.board.clone();
+                    m.perform(&mut new_board);
+                    let child_node = BoardNode {
+                        board: new_board,
+                        score: 0,
+                        children: HashMap::new(),
                     };
-                    if piece.color == tree.board.turn {
-                        score -= piece_score;
-                    } else {
-                        score += piece_score;
-                    }
+                    tree.children.insert(m, child_node);
                 }
-                tree.score = score;
             }
+        }
+        if depth == 0 {
+            let mut score = 0;
+            for piece in &tree.board.pieces {
+                let piece_score = match piece.piece_type {
+                    PieceType::Pawn => 1,
+                    PieceType::Knight => 3,
+                    PieceType::Bishop => 3,
+                    PieceType::Rook => 5,
+                    PieceType::Queen => 9,
+                    PieceType::King => {
+                        if piece.has_moved {
+                            0
+                        } else {
+                            2
+                        }
+                    }
+                };
+                if piece.color == tree.board.turn {
+                    score -= piece_score;
+                } else {
+                    score += piece_score;
+                }
+            }
+            tree.score = score;
         } else {
-            let mut score = i32::MIN;
-            for (_, child) in tree.children.iter_mut() {
-                Self::evaluate_tree(child, depth - 1);
-                score = score.max(child.score);
-            }
+            let mut children: Vec<_> = tree.children.values_mut().collect();
+            let score = children
+                .par_iter_mut()
+                .map(|child| {
+                    Self::evaluate_tree(child, depth - 1);
+                    child.score
+                })
+                .max()
+                .unwrap_or_default();
             tree.score = -score;
         }
     }
@@ -114,13 +118,11 @@ impl AI {
                     .find(|(_, child)| &child.board == board)
                     .unwrap()
                     .1;
-                self.tree.depth = depth;
             } else {
                 self.tree = BoardNode {
                     board: board.clone(),
                     score: 0,
                     children: HashMap::new(),
-                    depth,
                 };
             }
         }
@@ -137,6 +139,6 @@ impl AI {
 impl Player for AI {
     fn get_move(&mut self, board: Arc<RwLock<ChessBoard>>) -> Move {
         let board = board.read().unwrap();
-        return self.best_move(&board, 3);
+        return self.best_move(&board, 4);
     }
 }

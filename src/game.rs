@@ -9,14 +9,20 @@ pub struct ChessGame {
     pub board: Arc<RwLock<ChessBoard>>,
     pub white_player: Box<dyn Player>,
     pub black_player: Box<dyn Player>,
+    pub on_update_func: Box<dyn Fn() + Send + 'static>,
 }
 
 impl ChessGame {
-    pub fn new(white_player: Box<dyn Player>, black_player: Box<dyn Player>) -> Self {
+    pub fn new(
+        white_player: Box<dyn Player>,
+        black_player: Box<dyn Player>,
+        on_update_func: impl Fn() + Send + 'static,
+    ) -> Self {
         Self {
             board: Arc::new(RwLock::new(ChessBoard::new())),
             white_player,
             black_player,
+            on_update_func: Box::new(on_update_func),
         }
     }
 
@@ -37,6 +43,8 @@ impl ChessGame {
             let mut board = self.board.write().unwrap();
 
             chess_move.perform(&mut board);
+
+            (self.on_update_func)();
 
             if let Some(win_state) = board.win_state() {
                 return win_state;
