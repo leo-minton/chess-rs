@@ -1,4 +1,7 @@
-use chess::game::{ChessGame, HumanPlayer};
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+use chess::game::{ChannelPlayer, ChessGame};
 use std::{
     collections::HashMap,
     sync::{mpsc::Sender, Arc, RwLock},
@@ -71,7 +74,7 @@ impl ChessApp {
         self.valid_moves.clear();
         self.win_state = None;
 
-        let (white_channel, player) = HumanPlayer::new();
+        let (white_channel, player) = ChannelPlayer::new();
         self.white_channel = Some(white_channel);
         let game = ChessGame::new(Box::new(player), Box::new(AI::new()), move || {
             context.request_repaint();
@@ -90,7 +93,12 @@ impl ChessApp {
     fn load_assets(&mut self, cc: &CreationContext) {
         for piece in PieceType::iter() {
             for color in Color::iter() {
-                let path = &format!("{}/{}{}.png", DEFAULT_ASSETS, color, piece);
+                let path = &format!(
+                    "{}/{}{}.png",
+                    DEFAULT_ASSETS,
+                    color,
+                    piece.to_string().to_uppercase()
+                );
                 if let Some(image) = ASSETS.get_file(path).and_then(|f| Some(f.contents())) {
                     let image = load_image_from_memory(image);
                     self.images.insert(
@@ -324,6 +332,10 @@ impl eframe::App for ChessApp {
 }
 
 fn main() -> Result<(), eframe::Error> {
+    println!(
+        "Running with thread pool size {}",
+        rayon::current_num_threads()
+    );
     let options = eframe::NativeOptions::default();
     eframe::run_native(
         "Chess Game",

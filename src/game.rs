@@ -64,18 +64,18 @@ pub trait Player: Send {
     fn get_move(&mut self, board: Arc<RwLock<ChessBoard>>) -> crate::logic::Move;
 }
 
-pub struct HumanPlayer {
+pub struct ChannelPlayer {
     pub move_channel: Receiver<crate::logic::Move>,
 }
 
-impl HumanPlayer {
+impl ChannelPlayer {
     pub fn new() -> (Sender<crate::logic::Move>, Self) {
         let (tx, rx) = mpsc::channel();
         (tx, Self { move_channel: rx })
     }
 }
 
-impl Player for HumanPlayer {
+impl Player for ChannelPlayer {
     fn get_move(&mut self, _board: Arc<RwLock<ChessBoard>>) -> crate::logic::Move {
         self.move_channel.recv().unwrap_or_else(|_| {
             std::process::exit(0);

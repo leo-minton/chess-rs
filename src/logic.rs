@@ -1,7 +1,7 @@
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
 use std::{
-    collections::HashMap,
     fmt::{Debug, Display},
+    str::FromStr,
 };
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -29,12 +29,34 @@ impl PieceType {
 impl Display for PieceType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PieceType::King => write!(f, "K"),
-            PieceType::Queen => write!(f, "Q"),
-            PieceType::Rook => write!(f, "R"),
-            PieceType::Bishop => write!(f, "B"),
-            PieceType::Knight => write!(f, "N"),
-            PieceType::Pawn => write!(f, "P"),
+            PieceType::King => write!(f, "k"),
+            PieceType::Queen => write!(f, "q"),
+            PieceType::Rook => write!(f, "r"),
+            PieceType::Bishop => write!(f, "b"),
+            PieceType::Knight => write!(f, "n"),
+            PieceType::Pawn => write!(f, "p"),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ParsePieceError;
+
+impl FromStr for PieceType {
+    type Err = ParsePieceError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.len() != 1 {
+            return Err(ParsePieceError);
+        }
+        match s.chars().next().unwrap().to_ascii_lowercase() {
+            'k' => Ok(PieceType::King),
+            'q' => Ok(PieceType::Queen),
+            'r' => Ok(PieceType::Rook),
+            'b' => Ok(PieceType::Bishop),
+            'n' => Ok(PieceType::Knight),
+            'p' => Ok(PieceType::Pawn),
+            _ => Err(ParsePieceError),
         }
     }
 }
@@ -411,38 +433,47 @@ impl ChessBoard {
     }
 
     fn initialize_pieces(&mut self) {
-        let initial_positions: HashMap<PieceType, Vec<&str>> = HashMap::from([
-            (
-                PieceType::Pawn,
-                vec!["a2", "b2", "c2", "d2", "e2", "f2", "g2", "h2"],
-            ),
-            (PieceType::Rook, vec!["a1", "h1"]),
-            (PieceType::Knight, vec!["b1", "g1"]),
-            (PieceType::Bishop, vec!["c1", "f1"]),
-            (PieceType::Queen, vec!["d1"]),
-            (PieceType::King, vec!["e1"]),
-        ]);
-
-        for (piece, positions) in initial_positions.iter() {
-            for &pos in positions {
-                if let Some((x, y)) = notation_to_pos(pos) {
-                    self.pieces
-                        .push(ChessPiece::new(*piece, (x, y), Color::White));
-                    self.pieces
-                        .push(ChessPiece::new(*piece, (x, 7 - y), Color::Black));
+        self.set_from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
+    }
+    pub fn set_from_fen(&mut self, fen: &str) {
+        let lines = fen.split('/');
+        let mut pos = (0, 0);
+        self.pieces.clear();
+        for line in lines {
+            for c in line.chars() {
+                match c {
+                    '1'..='8' => {
+                        let empty_squares = c.to_digit(10).unwrap() as usize;
+                        pos.0 += empty_squares;
+                    }
+                    c => {
+                        let piece_type = PieceType::from_str(&c.to_string()).unwrap();
+                        let color = if c.is_uppercase() {
+                            Color::White
+                        } else {
+                            Color::Black
+                        };
+                        self.pieces.push(ChessPiece::new(piece_type, pos, color));
+                        pos.0 += 1;
+                    }
                 }
+            }
+            pos.0 = 0;
+            pos.1 += 1;
+            if pos.1 >= 8 {
+                break;
             }
         }
     }
 
     pub fn piece_at(&self, pos: (usize, usize)) -> Option<&ChessPiece> {
         let pos = (pos.0 as usize, pos.1 as usize);
-        self.pieces.iter().find(|p| p.pos == pos)
+        self.pieces.par_iter().find_any(|p| p.pos == pos)
     }
 
     pub fn piece_at_mut(&mut self, pos: (usize, usize)) -> Option<&mut ChessPiece> {
         let pos = (pos.0 as usize, pos.1 as usize);
-        self.pieces.iter_mut().find(|p| p.pos == pos)
+        self.pieces.par_iter_mut().find_any(|p| p.pos == pos)
     }
 
     pub fn valid_moves<'a>(
