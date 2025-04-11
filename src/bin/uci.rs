@@ -1,18 +1,17 @@
 use std::{io::Stdin, mem, sync::mpsc::Sender};
 
 use chess::{
-    game::{self, ChannelPlayer, ChessGame},
-    logic::Move,
+    ai::AI,
+    game::{ChannelPlayer, ChessGame, Player},
+    logic::{Move, PieceColor},
 };
-
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 struct Uci {
     white_channel: Sender<Move>,
     black_channel: Sender<Move>,
     game: ChessGame,
     stdin: Stdin,
+    ai: AI,
 }
 
 impl Uci {
@@ -27,12 +26,16 @@ impl Uci {
             black_channel,
             game,
             stdin: std::io::stdin(),
+            ai: AI::new(),
         }
     }
 
-    fn reset(&mut self) {
-        let new = Self::new();
-        *self = new;
+    fn reset(&mut self, reset_ai: bool) {
+        let mut old = Self::new();
+        mem::swap(self, &mut old);
+        if !reset_ai {
+            self.ai = old.ai;
+        }
     }
 
     fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -56,25 +59,70 @@ impl Uci {
                     break;
                 }
                 "ucinewgame" => {
-                    self.reset();
+                    self.reset(true);
                 }
                 "position" => {
-                    let mut moves = Vec::new();
-                    if words.next() == Some("startpos") {
-                        // Start from the initial position
-                    } else {
-                        // Parse FEN or moves
-                        let fen = words.next().unwrap_or("");
-                        if fen != "moves" {
-                            self.game.board.write()?.set_from_fen(fen);
-                        }
-                        for word in words {
-                            if let Ok(mv) = Move::from_str(word) {
-                                moves.push(mv);
+                    let mut board = self.game.board.write().unwrap();
+                    while let Some(command) = words.next() {
+                        match command {
+                            "startpos" => {
+                                drop(board);
+                                self.reset(false);
+                                board = self.game.board.write().unwrap();
                             }
+                            "fen" => {
+                                let fen = words.next().unwrap_or("");
+                                board.set_from_fen(fen);
+                            }
+                            "moves" => {
+                                while let Some(word) = words.next() {
+                                    if let Ok(mv) = Move::from_str(word, &board) {
+                                        mv.perform(&mut board);
+                                    }
+                                }
+                            }
+                            _ => {}
                         }
                     }
-                    self.game.make_moves(&moves);
+                }
+                "go" => {
+                    let mut wtime: usize = 0;
+                    let mut btime: usize = 0;
+                    let mut winc: usize = 0;
+                    let mut binc: usize = 0;
+                    while let Some(command) = words.next() {
+                        match command {
+                            "searchmoves" => {
+                                println!("Unimplemented: searchmoves");
+                            }
+                            "ponder" => {
+                                println!("Unimplemented: ponder");
+                            }
+                            "wtime" => {
+                                wtime = words.next().unwrap_or("0").parse().unwrap_or(0);
+                            }
+                            "btime" => {
+                                btime = words.next().unwrap_or("0").parse().unwrap_or(0);
+                            }
+                            "winc" => {
+                                winc = words.next().unwrap_or("0").parse().unwrap_or(0);
+                            }
+                            "binc" => {
+                                binc = words.next().unwrap_or("0").parse().unwrap_or(0);
+                            }
+                            _ => {}
+                        }
+                    }
+                    let best_move = self.ai.get_move(self.game.board.clone());
+                    match self.game.board.read().unwrap().turn {
+                        PieceColor::White => {
+                            self.white_channel.send(best_move.clone()).unwrap();
+                        }
+                        PieceColor::Black => {
+                            self.black_channel.send(best_move.clone()).unwrap();
+                        }
+                    }
+                    println!("bestmove {}", best_move.to_string());
                 }
                 _ => {
                     println!("Unknown command: {}", command);
@@ -85,6 +133,6 @@ impl Uci {
     }
 }
 
-fn main() -> std::io::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     Uci::new().run()
 }

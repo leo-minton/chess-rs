@@ -67,7 +67,7 @@ impl AI {
         }
         if depth == 0 {
             let mut score = 0.0;
-            for piece in &tree.board.pieces {
+            for piece in tree.board.pieces.iter().filter_map(|x| x.as_ref()) {
                 let mut piece_score = match piece.piece_type {
                     PieceType::Pawn => 1.0,
                     PieceType::Knight => 3.0,
@@ -96,14 +96,25 @@ impl AI {
             tree.score = score;
         } else {
             let mut children: Vec<_> = tree.children.values_mut().collect();
-            let score = children
-                .par_iter_mut()
-                .map(|child| {
-                    Self::evaluate_tree(child, depth - 1);
-                    child.score
-                })
-                .max_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
-                .unwrap_or_default();
+            let score = if depth >= 2 {
+                children
+                    .iter_mut()
+                    .map(|child| {
+                        Self::evaluate_tree(child, depth - 1);
+                        child.score
+                    })
+                    .max_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
+                    .unwrap_or_default()
+            } else {
+                children
+                    .par_iter_mut()
+                    .map(|child| {
+                        Self::evaluate_tree(child, depth - 1);
+                        child.score
+                    })
+                    .max_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
+                    .unwrap_or_default()
+            };
             tree.score = -score;
         }
     }

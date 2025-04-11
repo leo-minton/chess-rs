@@ -1,6 +1,3 @@
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 use chess::game::{ChannelPlayer, ChessGame};
 use std::{
     collections::HashMap,
@@ -9,7 +6,7 @@ use std::{
 use strum::IntoEnumIterator;
 
 use chess::ai::AI;
-use chess::logic::{ChessBoard, Color, Move, MoveType, PieceType, WinState};
+use chess::logic::{ChessBoard, Move, MoveType, PieceColor, PieceType, WinState};
 use eframe::{
     egui::{
         self, Align2, Area, Color32, ColorImage, Context, Frame, Id, Modal, PointerButton, Pos2,
@@ -37,7 +34,7 @@ fn load_image_from_memory(image_data: &[u8]) -> ColorImage {
 }
 
 struct ChessApp {
-    images: HashMap<(PieceType, Color), TextureHandle>,
+    images: HashMap<(PieceType, PieceColor), TextureHandle>,
     board: Arc<RwLock<ChessBoard>>,
     selected_piece: Option<(usize, usize)>,
     valid_moves: Vec<Move>,
@@ -83,16 +80,16 @@ impl ChessApp {
         self.game_thread = Some(game.create_game_thread());
     }
 
-    fn channel(&self, color: Color) -> Option<Sender<Move>> {
+    fn channel(&self, color: PieceColor) -> Option<Sender<Move>> {
         match color {
-            Color::White => self.white_channel.clone(),
-            Color::Black => self.black_channel.clone(),
+            PieceColor::White => self.white_channel.clone(),
+            PieceColor::Black => self.black_channel.clone(),
         }
     }
 
     fn load_assets(&mut self, cc: &CreationContext) {
         for piece in PieceType::iter() {
-            for color in Color::iter() {
+            for color in PieceColor::iter() {
                 let path = &format!(
                     "{}/{}{}.png",
                     DEFAULT_ASSETS,
@@ -113,7 +110,7 @@ impl ChessApp {
         }
     }
 
-    fn get_image(&self, piece: PieceType, color: Color) -> &TextureHandle {
+    fn get_image(&self, piece: PieceType, color: PieceColor) -> &TextureHandle {
         self.images.get(&(piece, color)).unwrap()
     }
 
@@ -159,7 +156,7 @@ impl ChessApp {
         }
 
         let board = self.board.read().unwrap();
-        for piece in &board.pieces {
+        for piece in board.pieces.iter().filter_map(|x| x.as_ref()) {
             let pos = Vec2::new(piece.pos.0 as f32, piece.pos.1 as f32) * square_size;
             let rect = Rect::from_min_size(response.rect.min + pos, Vec2::splat(square_size));
 

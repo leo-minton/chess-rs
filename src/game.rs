@@ -3,7 +3,7 @@ use std::sync::{
     Arc, RwLock,
 };
 
-use crate::logic::{ChessBoard, Color, WinState};
+use crate::logic::{ChessBoard, PieceColor, WinState};
 
 pub struct ChessGame {
     pub board: Arc<RwLock<ChessBoard>>,
@@ -52,10 +52,10 @@ impl ChessGame {
         }
     }
 
-    pub fn get_player(&mut self, color: Color) -> &mut dyn Player {
+    pub fn get_player(&mut self, color: PieceColor) -> &mut dyn Player {
         match color {
-            Color::White => self.white_player.as_mut(),
-            Color::Black => self.black_player.as_mut(),
+            PieceColor::White => self.white_player.as_mut(),
+            PieceColor::Black => self.black_player.as_mut(),
         }
     }
 }

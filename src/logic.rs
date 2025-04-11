@@ -1,4 +1,4 @@
-use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::{
     fmt::{Debug, Display},
     str::FromStr,
@@ -62,31 +62,31 @@ impl FromStr for PieceType {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, Hash)]
-pub enum Color {
+pub enum PieceColor {
     White,
     Black,
 }
 
-impl Color {
-    pub fn opposite(&self) -> Color {
+impl PieceColor {
+    pub fn opposite(&self) -> PieceColor {
         match self {
-            Color::White => Color::Black,
-            Color::Black => Color::White,
+            PieceColor::White => PieceColor::Black,
+            PieceColor::Black => PieceColor::White,
         }
     }
     pub fn readable(&self) -> &'static str {
         match self {
-            Color::White => "White",
-            Color::Black => "Black",
+            PieceColor::White => "White",
+            PieceColor::Black => "Black",
         }
     }
 }
 
-impl Display for Color {
+impl Display for PieceColor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Color::White => write!(f, "w"),
-            Color::Black => write!(f, "b"),
+            PieceColor::White => write!(f, "w"),
+            PieceColor::Black => write!(f, "b"),
         }
     }
 }
@@ -95,12 +95,12 @@ impl Display for Color {
 pub struct ChessPiece {
     pub piece_type: PieceType,
     pub pos: (usize, usize),
-    pub color: Color,
+    pub color: PieceColor,
     pub first_move_at: Option<usize>,
 }
 
 impl ChessPiece {
-    pub fn new(piece_type: PieceType, pos: (usize, usize), color: Color) -> Self {
+    pub fn new(piece_type: PieceType, pos: (usize, usize), color: PieceColor) -> Self {
         Self {
             piece_type,
             pos,
@@ -109,9 +109,10 @@ impl ChessPiece {
         }
     }
 
-    pub fn move_to(&mut self, target: (usize, usize), first_move_at: usize) {
+    pub fn move_to(mut self, target: (usize, usize), first_move_at: usize, board: &mut ChessBoard) {
         self.pos = target;
         self.first_move_at = Some(first_move_at);
+        board.pieces[ChessBoard::pos_to_idx(target)] = Some(self);
     }
 
     fn add_in_dir(
@@ -146,10 +147,16 @@ impl ChessPiece {
         match self.piece_type {
             PieceType::King => {
                 if !ignore_check && !board.is_in_check(self.color) && self.first_move_at.is_none() {
-                    for rook in board.pieces.iter().filter(|p| {
-                        p.piece_type == PieceType::Rook
-                            && p.color == self.color
-                            && p.first_move_at.is_none()
+                    for rook in board.pieces.iter().filter_map(|p| {
+                        if p.as_ref().is_some_and(|p| {
+                            p.piece_type == PieceType::Rook
+                                && p.color == self.color
+                                && p.first_move_at.is_none()
+                        }) {
+                            p.as_ref()
+                        } else {
+                            None
+                        }
                     }) {
                         let direction = (rook.pos.0 as isize - self.pos.0 as isize).signum();
                         if (1..(rook.pos.0 as isize - self.pos.0 as isize).abs()).all(|i| {
@@ -230,7 +237,11 @@ impl ChessPiece {
                 }
             }
             PieceType::Pawn => {
-                let direction = if self.color == Color::White { -1 } else { 1 };
+                let direction = if self.color == PieceColor::White {
+                    -1
+                } else {
+                    1
+                };
                 let target_row = (self.pos.1 as isize + direction) as usize;
 
                 if board.piece_at((self.pos.0, target_row)).is_none() {
@@ -288,7 +299,7 @@ impl ChessPiece {
 }
 
 pub enum WinState {
-    Checkmate(Color),
+    Checkmate(PieceColor),
     Stalemate,
 }
 
@@ -311,20 +322,27 @@ pub struct Move {
     pub move_type: MoveType,
 }
 
-impl Display for Move {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} -> {}",
-            pos_to_notation(self.original),
-            pos_to_notation(self.target),
-        )
+impl ToString for Move {
+    fn to_string(&self) -> String {
+        match self.move_type {
+            MoveType::Normal | MoveType::EnPassant | MoveType::Castling { .. } => format!(
+                "{}{}",
+                pos_to_notation(self.original),
+                pos_to_notation(self.target)
+            ),
+            MoveType::Promotion(piece_type) => format!(
+                "{}{}{}",
+                pos_to_notation(self.original),
+                pos_to_notation(self.target),
+                piece_type
+            ),
+        }
     }
 }
 
 impl Debug for Move {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{}", self.to_string())
     }
 }
 
@@ -334,6 +352,37 @@ impl Move {
             original,
             target,
             move_type,
+        }
+    }
+
+    pub fn from_str(s: &str, board: &ChessBoard) -> Result<Self, ()> {
+        match s.len() {
+            4 => {
+                let original = notation_to_pos(&s[0..2]).ok_or(())?;
+                let target = notation_to_pos(&s[2..4]).ok_or(())?;
+                let piece = board.piece_at(original).ok_or(())?;
+                if piece.piece_type == PieceType::King
+                    && (original.0 as isize - target.0 as isize).abs() == 2
+                {
+                    Ok(Move::new(
+                        original,
+                        target,
+                        MoveType::Castling {
+                            rook: (if target.0 < 4 { 0 } else { 7 }, target.1),
+                            direction: (target.0 as isize - original.0 as isize).signum(),
+                        },
+                    ))
+                } else {
+                    Ok(Move::new(original, target, MoveType::Normal))
+                }
+            }
+            5 => {
+                let original = notation_to_pos(&s[0..2]).ok_or(())?;
+                let target = notation_to_pos(&s[2..4]).ok_or(())?;
+                let piece_type = PieceType::from_str(&s[4..5]).map_err(|_| ())?;
+                Ok(Move::new(original, target, MoveType::Promotion(piece_type)))
+            }
+            _ => Err(()),
         }
     }
 
@@ -383,14 +432,12 @@ impl Move {
 
     pub fn perform(&self, board: &mut ChessBoard) {
         let moves_made = board.moves_made;
-        board.pieces.retain(|p| p.pos != self.target);
-        if let Some(piece) = board.piece_at_mut(self.original) {
-            piece.move_to(self.target, moves_made);
+        if let Some(mut piece) = board.pieces[ChessBoard::pos_to_idx(self.original)].take() {
             match self.move_type {
                 MoveType::Castling { rook, direction } => {
-                    if let Some(rook_piece) = board.piece_at_mut(rook) {
+                    if let Some(rook_piece) = board.pieces[ChessBoard::pos_to_idx(rook)].take() {
                         let target = ((self.target.0 as isize - direction) as usize, self.target.1);
-                        rook_piece.move_to(target, moves_made);
+                        rook_piece.move_to(target, moves_made, board);
                     }
                 }
                 MoveType::Promotion(piece_type) => {
@@ -398,10 +445,11 @@ impl Move {
                 }
                 MoveType::EnPassant => {
                     let target = (self.target.0, self.original.1);
-                    board.pieces.retain(|p| p.pos != target);
+                    board.pieces[ChessBoard::pos_to_idx(target)] = None;
                 }
                 MoveType::Normal => {}
             }
+            piece.move_to(self.target, moves_made, board);
         }
         board.turn = board.turn.opposite();
         board.moves_made += 1;
@@ -410,8 +458,8 @@ impl Move {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ChessBoard {
-    pub pieces: Vec<ChessPiece>,
-    pub turn: Color,
+    pub pieces: [Option<ChessPiece>; 64],
+    pub turn: PieceColor,
     pub moves_made: usize,
 }
 
@@ -424,12 +472,16 @@ impl Default for ChessBoard {
 impl ChessBoard {
     pub fn new() -> Self {
         let mut board = ChessBoard {
-            pieces: Vec::new(),
-            turn: Color::White,
+            pieces: [const { None }; 64],
+            turn: PieceColor::White,
             moves_made: 0,
         };
         board.initialize_pieces();
         board
+    }
+
+    fn pos_to_idx(pos: (usize, usize)) -> usize {
+        pos.0 + pos.1 * 8
     }
 
     fn initialize_pieces(&mut self) {
@@ -438,7 +490,7 @@ impl ChessBoard {
     pub fn set_from_fen(&mut self, fen: &str) {
         let lines = fen.split('/');
         let mut pos = (0, 0);
-        self.pieces.clear();
+        self.pieces = [const { None }; 64];
         for line in lines {
             for c in line.chars() {
                 match c {
@@ -449,11 +501,12 @@ impl ChessBoard {
                     c => {
                         let piece_type = PieceType::from_str(&c.to_string()).unwrap();
                         let color = if c.is_uppercase() {
-                            Color::White
+                            PieceColor::White
                         } else {
-                            Color::Black
+                            PieceColor::Black
                         };
-                        self.pieces.push(ChessPiece::new(piece_type, pos, color));
+                        self.pieces[Self::pos_to_idx(pos)] =
+                            Some(ChessPiece::new(piece_type, pos, color));
                         pos.0 += 1;
                     }
                 }
@@ -467,27 +520,33 @@ impl ChessBoard {
     }
 
     pub fn piece_at(&self, pos: (usize, usize)) -> Option<&ChessPiece> {
-        let pos = (pos.0 as usize, pos.1 as usize);
-        self.pieces.par_iter().find_any(|p| p.pos == pos)
+        self.pieces[Self::pos_to_idx(pos)].as_ref()
     }
 
     pub fn piece_at_mut(&mut self, pos: (usize, usize)) -> Option<&mut ChessPiece> {
-        let pos = (pos.0 as usize, pos.1 as usize);
-        self.pieces.par_iter_mut().find_any(|p| p.pos == pos)
+        self.pieces[Self::pos_to_idx(pos)].as_mut()
     }
 
     pub fn valid_moves<'a>(
         &'a self,
         ignore_check: bool,
-        color: Color,
+        color: PieceColor,
     ) -> impl ParallelIterator<Item = Move> + 'a {
         self.pieces
             .par_iter()
-            .filter(move |piece| piece.color == color)
+            .filter_map(move |piece| {
+                piece.as_ref().and_then(|piece| {
+                    if piece.color == color {
+                        Some(piece)
+                    } else {
+                        None
+                    }
+                })
+            })
             .flat_map_iter(move |piece| piece.valid_moves(self, ignore_check))
     }
 
-    pub fn is_in_check(&self, color: Color) -> bool {
+    pub fn is_in_check(&self, color: PieceColor) -> bool {
         self.valid_moves(true, color.opposite()).any(|m| {
             self.piece_at(m.target)
                 .map_or(false, |p| p.piece_type == PieceType::King)
@@ -497,7 +556,7 @@ impl ChessBoard {
     pub fn is_pos_attacked(
         &self,
         pos: (usize, usize),
-        attacking_color: Color,
+        attacking_color: PieceColor,
         ignore_check: bool,
     ) -> bool {
         let moves = self.valid_moves(ignore_check, attacking_color);
